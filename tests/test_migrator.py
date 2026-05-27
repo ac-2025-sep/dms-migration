@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from mayan_drive_migration.config import Settings
-from mayan_drive_migration.manifest import SKIPPED, UPLOADED
+from mayan_drive_migration.manifest import FAILED, SKIPPED, UPLOADED
 from mayan_drive_migration.migrator import Migrator, build_tags
 
 
@@ -67,6 +67,18 @@ class MetadataFailOnceMayan(FakeMayan):
             raise RuntimeError("metadata unavailable")
 
 
+class UploadFailOnceMayan(FakeMayan):
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed = False
+
+    def upload_file(self, document_id: int, file_path: Path) -> None:
+        self.calls.append("upload")
+        if not self.failed:
+            self.failed = True
+            raise RuntimeError('POST https://mayan.example.com/api/v4/documents/20/files/ returned 400: {"file_new":["The submitted file is empty."]}')
+
+
 def test_build_tags() -> None:
     tags = build_tags(
         "Root/Base Documents",
@@ -120,6 +132,31 @@ def test_metadata_retry_does_not_reupload_existing_document(tmp_path) -> None:
         "attach",
         "metadata",
         "cabinet",
+        "attach",
+        "metadata",
+        "tags",
+    ]
+
+
+def test_upload_retry_reuploads_existing_document(tmp_path) -> None:
+    settings = _settings(tmp_path, dry_run=False)
+    mayan = UploadFailOnceMayan()
+    migrator = Migrator(settings, drive_client=FakeDrive(tmp_path), mayan_client=mayan)
+
+    migrator.scan()
+    first = migrator.migrate()
+    second = migrator.migrate(retry_failed=True)
+
+    assert first.items["g1"].status == FAILED
+    assert first.items["g1"].mayan_document_id == 20
+    assert second.items["g1"].status == UPLOADED
+    assert second.items["g1"].mayan_document_id == 20
+    assert mayan.calls == [
+        "cabinet",
+        "document",
+        "upload",
+        "cabinet",
+        "upload",
         "attach",
         "metadata",
         "tags",

@@ -126,3 +126,7 @@ Failures are isolated per file. Use `migrate --retry-failed` to retry only faile
 - Mayan API endpoint details can vary by Mayan version; check `migration.log` for exact API errors.
 - Metadata type creation depends on Mayan permissions and configuration.
 - Background document processing in Mayan may continue after an upload returns `202 Accepted`.
+
+
+##
+add the files to be uploaded to google service account

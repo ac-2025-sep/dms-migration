@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,7 @@ class MayanClient:
                 files={"file_new": (file_path.name, handle)},
                 data={"action_name": "replace"},
                 accepted_statuses={200, 201, 202, 204},
+                timeout=self._upload_timeout(file_path),
             )
 
     def attach_document_to_cabinet(self, document_id: int, cabinet_id: int) -> None:
@@ -193,11 +195,13 @@ class MayanClient:
         **kwargs: Any,
     ) -> Any:
         accepted = accepted_statuses or {200, 201}
+        timeout = kwargs.pop("timeout", self.settings.request_timeout_seconds)
+        _rewind_file_handles(kwargs.get("files"))
         try:
             response = self.session.request(
                 method,
                 url,
-                timeout=self.settings.request_timeout_seconds,
+                timeout=timeout,
                 **kwargs,
             )
         except requests.RequestException:
@@ -217,6 +221,10 @@ class MayanClient:
     def _url(self, path: str) -> str:
         return f"{self.base_api_url}/{path.strip('/')}/"
 
+    def _upload_timeout(self, file_path: Path) -> int:
+        size_mb = math.ceil(file_path.stat().st_size / (1024 * 1024))
+        return max(self.settings.request_timeout_seconds, min(3600, 60 + size_mb * 10))
+
 
 def _cabinet_label(path: str) -> str:
     return " > ".join(_path_parts(path))
@@ -232,3 +240,13 @@ def _flatten_cabinets(cabinets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         flattened.append(cabinet)
         flattened.extend(_flatten_cabinets(cabinet.get("children", [])))
     return flattened
+
+
+def _rewind_file_handles(files: Any) -> None:
+    if not files:
+        return
+    values = files.values() if isinstance(files, dict) else files
+    for value in values:
+        handle = value[1] if isinstance(value, tuple) and len(value) >= 2 else value
+        if hasattr(handle, "seek"):
+            handle.seek(0)

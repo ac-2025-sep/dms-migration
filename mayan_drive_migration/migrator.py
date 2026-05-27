@@ -106,13 +106,16 @@ class Migrator:
             LOGGER.info("Migrating %s (%s)", item.source_path, item.google_file_id)
             document_id = item.mayan_document_id
             cabinet_id = mayan.get_or_create_cabinet(item.target_cabinet_path)
-            if document_id is None:
+            should_upload_file = document_id is None or _failed_during_file_upload(item.error_message)
+            if should_upload_file:
                 temp_path = self.drive_client.download_file(record, self.settings.download_temp_dir)
+            if document_id is None:
                 document_id = mayan.create_document(
                     item.metadata.get("title") or record["name"],
                     self.settings.mayan_default_document_type_id,
                 )
                 item.mayan_document_id = document_id
+            if should_upload_file:
                 mayan.upload_file(document_id, temp_path)
             mayan.attach_document_to_cabinet(document_id, cabinet_id)
 
@@ -198,3 +201,8 @@ def _dedupe(values: list[str]) -> list[str]:
             result.append(value)
             seen.add(key)
     return result
+
+
+def _failed_during_file_upload(error_message: str) -> bool:
+    lowered = error_message.lower()
+    return "/files/" in lowered or "file_new" in lowered or "submitted file is empty" in lowered
